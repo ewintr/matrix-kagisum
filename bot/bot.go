@@ -62,6 +62,7 @@ func (m *Bot) Init() error {
 	if m.config.AcceptInvites {
 		m.AddEventHandler(m.InviteHandler())
 	}
+	m.AddEventHandler(m.ResponseHandler())
 
 	return nil
 }
@@ -105,10 +106,15 @@ func (m *Bot) InviteHandler() (event.Type, mautrix.EventHandler) {
 }
 
 func (m *Bot) ResponseHandler() (event.Type, mautrix.EventHandler) {
-	return event.EventMessage, func(source mautrix.EventSource, evt *event.Event) {
+	return event.EventReaction, func(source mautrix.EventSource, evt *event.Event) {
 		content := evt.Content.AsMessage()
 		eventID := evt.ID
 		m.logger.Info("received message", slog.String("content", content.Body))
+		// ignore if the message is sent by the bot itself
+		if evt.Sender == id.UserID(m.config.UserID) {
+			m.logger.Info("message sent by bot itself, ignoring", slog.String("event_id", eventID.String()))
+			return
+		}
 
 		// get reply from GPT
 		//reply, err := m.gptClient.Complete(conv)
