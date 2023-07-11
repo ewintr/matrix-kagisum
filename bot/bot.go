@@ -142,21 +142,23 @@ func (m *Bot) ReactionHandler() (event.Type, mautrix.EventHandler) {
 		relID := rel.GetAnnotationID()
 		relKey := rel.GetAnnotationKey()
 		m.logger.Info("received reaction", slog.String("event_id", eventID.String()), slog.String("rel_id", relID.String()), slog.String("rel_key", relKey))
-		if relKey != `🗒️` {
-			m.logger.Info("reaction is not 🗒️, ignoring", slog.String("event_id", eventID.String()))
+		if relKey != `🗒️` && relKey != `🗒` { // different clients have different emoji
+			m.logger.Info("reaction is not 🗒️ or 🗒, ignoring", slog.String("event_id", eventID.String()))
 			return
 		}
 
 		wantedURL, ok := m.messages[relID.String()]
+		var summary string
 		if !ok {
+			summary = "could not find referenced message in ternal storage, or referenced message does not contain url"
 			m.logger.Info("referenced message is not known or does not contain url, ignoring", slog.String("event_id", eventID.String()))
-			return
-		}
-
-		summary, err := m.kagiCient.Summarize(wantedURL)
-		if err != nil {
-			m.logger.Error("failed to summarize", slog.String("err", err.Error()))
-			return
+		} else {
+			var err error
+			summary, err = m.kagiCient.Summarize(wantedURL)
+			if err != nil {
+				m.logger.Error("failed to summarize", slog.String("err", err.Error()))
+				return
+			}
 		}
 
 		reply := summary

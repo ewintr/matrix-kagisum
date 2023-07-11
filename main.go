@@ -32,13 +32,13 @@ func main() {
 
 	go ks.Run()
 	defer ks.Close()
-	logger.Info("matrix ks started")
+	logger.Info("matrix kagisum started")
 
 	done := make(chan os.Signal)
 	signal.Notify(done, os.Interrupt)
 	<-done
 
-	logger.Info("matrix ks stopped")
+	logger.Info("matrix kagisum stopped")
 
 }
 
