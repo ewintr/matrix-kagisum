@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,7 +27,6 @@ func NewKagi(baseURL, apiKey string) *Kagi {
 
 func (k *Kagi) Summarize(sumURL string) (string, error) {
 	queryURL := fmt.Sprintf("%s/summarize?engine=muriel&url=%s", k.baseURL, url.QueryEscape(sumURL))
-	//queryURL = ""
 	req, err := http.NewRequest("GET", queryURL, nil)
 	if err != nil {
 		return "", err
@@ -37,7 +37,6 @@ func (k *Kagi) Summarize(sumURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	fmt.Println(res.Status)
 
 	resBody, err := io.ReadAll(res.Body)
 	if err != nil {
@@ -45,7 +44,14 @@ func (k *Kagi) Summarize(sumURL string) (string, error) {
 	}
 	defer res.Body.Close()
 
-	fmt.Sprintf("response: %v", string(resBody))
+	resp := struct {
+		Data struct {
+			Output string
+		}
+	}{}
+	if err := json.Unmarshal(resBody, &resp); err != nil {
+		return "", err
+	}
 
-	return string(resBody), nil
+	return resp.Data.Output, nil
 }

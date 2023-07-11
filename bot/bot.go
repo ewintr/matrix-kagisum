@@ -1,6 +1,8 @@
 package bot
 
 import (
+	"regexp"
+
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/exp/slog"
 	"maunium.net/go/mautrix"
@@ -27,6 +29,7 @@ type Bot struct {
 	cryptoHelper *cryptohelper.CryptoHelper
 	kagiCient    *Kagi
 	logger       *slog.Logger
+	messages     map[string]string
 }
 
 func NewBot(cfg MatrixConfig, kagi *Kagi, logger *slog.Logger) *Bot {
@@ -34,6 +37,7 @@ func NewBot(cfg MatrixConfig, kagi *Kagi, logger *slog.Logger) *Bot {
 		config:    cfg,
 		kagiCient: kagi,
 		logger:    logger,
+		messages:  make(map[string]string),
 	}
 }
 
@@ -62,7 +66,8 @@ func (m *Bot) Init() error {
 	if m.config.AcceptInvites {
 		m.AddEventHandler(m.InviteHandler())
 	}
-	m.AddEventHandler(m.ResponseHandler())
+	m.AddEventHandler(m.ReactionHandler())
+	m.AddEventHandler(m.MessageHandler())
 
 	return nil
 }
@@ -105,8 +110,8 @@ func (m *Bot) InviteHandler() (event.Type, mautrix.EventHandler) {
 	}
 }
 
-func (m *Bot) ResponseHandler() (event.Type, mautrix.EventHandler) {
-	return event.EventReaction, func(source mautrix.EventSource, evt *event.Event) {
+func (m *Bot) MessageHandler() (event.Type, mautrix.EventHandler) {
+	return event.EventMessage, func(source mautrix.EventSource, evt *event.Event) {
 		content := evt.Content.AsMessage()
 		eventID := evt.ID
 		m.logger.Info("received message", slog.String("content", content.Body))
@@ -115,23 +120,53 @@ func (m *Bot) ResponseHandler() (event.Type, mautrix.EventHandler) {
 			m.logger.Info("message sent by bot itself, ignoring", slog.String("event_id", eventID.String()))
 			return
 		}
+		url, ok := findFirstURL(content.Body)
+		if !ok {
+			m.logger.Info("message does not contain url, ignoring", slog.String("event_id", eventID.String()))
+			return
+		}
+		m.messages[eventID.String()] = url
+		m.logger.Info("saved url", slog.String("event_id", eventID.String()), slog.String("url", url))
+	}
+}
 
-		// get reply from GPT
-		//reply, err := m.gptClient.Complete(conv)
-		//if err != nil {
-		//	m.logger.Error("failed to get reply from openai", slog.String("err", err.Error()), slog.String("bot", m.config.UserDisplayName))
-		//	return
-		//}
+func (m *Bot) ReactionHandler() (event.Type, mautrix.EventHandler) {
+	return event.EventReaction, func(source mautrix.EventSource, evt *event.Event) {
+		eventID := evt.ID
+		// ignore if the message is sent by the bot itself
+		if evt.Sender == id.UserID(m.config.UserID) {
+			m.logger.Info("message sent by bot itself, ignoring", slog.String("event_id", eventID.String()))
+			return
+		}
+		rel := evt.Content.AsReaction().GetRelatesTo()
+		relID := rel.GetAnnotationID()
+		relKey := rel.GetAnnotationKey()
+		m.logger.Info("received reaction", slog.String("event_id", eventID.String()), slog.String("rel_id", relID.String()), slog.String("rel_key", relKey))
+		if relKey != `🗒️` {
+			m.logger.Info("reaction is not 🗒️, ignoring", slog.String("event_id", eventID.String()))
+			return
+		}
 
-		reply := "the summary"
+		wantedURL, ok := m.messages[relID.String()]
+		if !ok {
+			m.logger.Info("referenced message is not known or does not contain url, ignoring", slog.String("event_id", eventID.String()))
+			return
+		}
+
+		summary, err := m.kagiCient.Summarize(wantedURL)
+		if err != nil {
+			m.logger.Error("failed to summarize", slog.String("err", err.Error()))
+			return
+		}
+
+		reply := summary
 		formattedReply := format.RenderMarkdown(reply, true, false)
 		formattedReply.RelatesTo = &event.RelatesTo{
 			InReplyTo: &event.InReplyTo{
-				EventID: eventID,
+				EventID: relID,
 			},
 		}
-		_, err := m.client.SendMessageEvent(evt.RoomID, event.EventMessage, &formattedReply)
-		if err != nil {
+		if _, err := m.client.SendMessageEvent(evt.RoomID, event.EventMessage, &formattedReply); err != nil {
 			m.logger.Error("failed to send message", slog.String("err", err.Error()))
 			return
 		}
@@ -139,6 +174,15 @@ func (m *Bot) ResponseHandler() (event.Type, mautrix.EventHandler) {
 		if len(reply) > 30 {
 			reply = reply[:30] + "..."
 		}
-		m.logger.Info("sent reply", slog.String("parent_id", eventID.String()), slog.String("content", reply))
+		m.logger.Info("sent reply", slog.String("parent_id", eventID.String()), slog.String("msg", reply))
 	}
+}
+
+func findFirstURL(s string) (string, bool) {
+	re := regexp.MustCompile(`https?\:\/\/[^ \)]*`)
+	match := re.FindString(s)
+	if match == "" {
+		return "", false
+	}
+	return match, true
 }
