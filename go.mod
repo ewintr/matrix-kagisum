@@ -1,4 +1,4 @@
-module ewintr.nl/matrix-kagisum
+module go-mod.ewintr.nl/matrix-kagisum
 
 go 1.20
 

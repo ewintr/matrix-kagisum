@@ -4,7 +4,7 @@ import (
 	"os"
 	"os/signal"
 
-	"ewintr.nl/matrix-kagisum/bot"
+	"go-mod.ewintr.nl/matrix-kagisum/bot"
 	"golang.org/x/exp/slog"
 )
 
